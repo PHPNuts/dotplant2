@@ -8,10 +8,13 @@ use app\seo\models\Meta;
 use app\seo\models\Redirect;
 use app\seo\models\Robots;
 use devgroup\ace\AceHelper;
+use devgroup\TagDependencyHelper\ActiveRecordHelper;
 use yii\filters\AccessControl;
 use yii\filters\VerbFilter;
 use yii\web\Controller;
 use yii\web\NotFoundHttpException;
+use yii\helpers\Url;
+use Yii;
 
 class ManageController extends Controller
 {
@@ -47,6 +50,12 @@ class ManageController extends Controller
                     //
                 ],
             ],
+            [
+              'class' => 'yii\filters\PageCache',
+              'only' => [ 'GetRobots' ],
+              'duration' => 24 * 60 * 60,
+              'dependency' => ActiveRecordHelper::getCommonTag(Config::className()),
+            ]
         ];
     }
 
@@ -65,8 +74,10 @@ class ManageController extends Controller
     public function actionGetRobots()
     {
         $robots = Robots::getRobots();
-        header('Content-Type: text/plain');
-        echo $robots;
+        $response = \Yii::$app->response;
+        $response->headers->set('Content-Type', 'text/plain');
+        $response->format = \yii\web\Response::FORMAT_RAW;
+        $response->data = $robots;
         \Yii::$app->end();
     }
 
@@ -104,8 +115,32 @@ class ManageController extends Controller
         )->one();
         if ($model !== null) {
             if ($model->load($_POST) && $model->validate()) {
-                $model->save();
-                return $this->redirect(['meta']);
+                if ($model->save()) {
+                    Yii::$app->session->setFlash('success', Yii::t('app', 'Record has been saved'));
+                    $returnUrl = Yii::$app->request->get('returnUrl', ['/seo/manage/meta']);
+                    switch (Yii::$app->request->post('action', 'save')) {
+                        case 'next':
+                            return $this->redirect(
+                                [
+                                    '/seo/manage/create-meta',
+                                    'returnUrl' => $returnUrl,
+                                ]
+                            );
+                        case 'back':
+                            return $this->redirect($returnUrl);
+                        default:
+                            return $this->redirect(
+                                Url::toRoute(
+                                    [
+                                        '/seo/manage/update-meta',
+                                        'id' => $model->getPrimaryKey(),
+                                        'returnUrl' => $returnUrl,
+                                    ]
+                                )
+                            );
+                    }
+                }
+
             } else {
                 return $this->render(
                     'updateMeta',
@@ -128,7 +163,29 @@ class ManageController extends Controller
     {
         $model = new Meta();
         if ($model->load($_POST) && $model->save()) {
-            return $this->redirect(['meta']);
+            Yii::$app->session->setFlash('success', Yii::t('app', 'Record has been saved'));
+            $returnUrl = Yii::$app->request->get('returnUrl', ['/seo/manage/meta']);
+            switch (Yii::$app->request->post('action', 'save')) {
+                case 'next':
+                    return $this->redirect(
+                        [
+                            '/seo/manage/create-meta',
+                            'returnUrl' => $returnUrl,
+                        ]
+                    );
+                case 'back':
+                    return $this->redirect($returnUrl);
+                default:
+                    return $this->redirect(
+                        Url::toRoute(
+                            [
+                                '/seo/manage/update-meta',
+                                'id' => $model->id,
+                                'returnUrl' => $returnUrl,
+                            ]
+                        )
+                    );
+            }
         } else {
             return $this->render(
                 'createMeta',
@@ -215,8 +272,32 @@ class ManageController extends Controller
         AceHelper::setAceScript($this);
         if ($model !== null) {
             if ($model->load($_POST) && $model->validate()) {
-                $model->save();
-                return $this->redirect(['counter']);
+                if ($model->save()) {
+                    Yii::$app->session->setFlash('success', Yii::t('app', 'Record has been saved'));
+                    $returnUrl = Yii::$app->request->get('returnUrl', ['/seo/manage/counter']);
+                    switch (Yii::$app->request->post('action', 'save')) {
+                        case 'next':
+                            return $this->redirect(
+                                [
+                                    '/seo/manage/create-counter',
+                                    'returnUrl' => $returnUrl,
+                                ]
+                            );
+                        case 'back':
+                            return $this->redirect($returnUrl);
+                        default:
+                            return $this->redirect(
+                                Url::toRoute(
+                                    [
+                                        '/seo/manage/update-counter',
+                                        'id' => $model->id,
+                                        'returnUrl' => $returnUrl
+                                    ]
+                                )
+                            );
+                    }
+                }
+
             } else {
                 return $this->render(
                     'updateCounter',
@@ -240,7 +321,18 @@ class ManageController extends Controller
         $model = new Counter();
         AceHelper::setAceScript($this);
         if ($model->load($_POST) && $model->save()) {
-            return $this->redirect(['counter']);
+            Yii::$app->session->setFlash('success', Yii::t('app', 'Record has been saved'));
+            $returnUrl = Yii::$app->request->get('returnUrl', ['/seo/manage/counter']);
+            if (Yii::$app->request->post('action', 'back') == 'next') {
+                $route = ['/seo/manage/create-counter', 'returnUrl' => $returnUrl];
+                if (!is_null(Yii::$app->request->get('parent_id', null))) {
+                    $route['parent_id'] = Yii::$app->request->get('parent_id');
+                }
+                return $this->redirect($route);
+            } else {
+                return $this->redirect($returnUrl);
+            }
+
         } else {
             return $this->render(
                 'createCounter',
@@ -400,7 +492,31 @@ class ManageController extends Controller
                     }
                 }
             }
-            return $this->redirect(['redirect']);
+
+            Yii::$app->session->setFlash('success', Yii::t('app', 'Records has been saved'));
+            $returnUrl = Yii::$app->request->get('returnUrl', ['/seo/manage/redirect']);
+            switch (Yii::$app->request->post('action', 'save')) {
+                case 'next':
+                    return $this->redirect(
+                        [
+                            '/seo/manage/create-redirects',
+                            'returnUrl' => $returnUrl,
+                        ]
+                    );
+                case 'back':
+                    return $this->redirect($returnUrl);
+                default:
+                    return $this->redirect(
+                        Url::toRoute(
+                            [
+                                '/seo/manage/update-redirect',
+                                'id' => $redirect->id,
+                                'returnUrl' => $returnUrl,
+                            ]
+                        )
+                    );
+            }
+
         } else {
             return $this->render('createRedirects');
         }
@@ -424,8 +540,32 @@ class ManageController extends Controller
         )->one();
         if ($model !== null) {
             if ($model->load($_POST) && $model->validate()) {
-                $model->save();
-                return $this->redirect(['redirect']);
+
+                if ($model->save()) {
+                    Yii::$app->session->setFlash('success', Yii::t('app', 'Records has been saved'));
+                    $returnUrl = Yii::$app->request->get('returnUrl', ['/seo/manage/redirect']);
+                    switch (Yii::$app->request->post('action', 'save')) {
+                        case 'next':
+                            return $this->redirect(
+                                [
+                                    '/seo/manage/create-redirects',
+                                    'returnUrl' => $returnUrl,
+                                ]
+                            );
+                        case 'back':
+                            return $this->redirect($returnUrl);
+                        default:
+                            return $this->redirect(
+                                Url::toRoute(
+                                    [
+                                        '/seo/manage/update-redirect',
+                                        'id' => $model->id,
+                                        'returnUrl' => $returnUrl,
+                                    ]
+                                )
+                            );
+                    }
+                }
             } else {
                 return $this->render(
                     'updateRedirect',

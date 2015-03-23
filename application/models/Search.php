@@ -53,6 +53,7 @@ class Search extends Model
             ->orWhere('`h1` LIKE :q')
             ->orWhere('`content` LIKE :q')
             ->addParams([':q' => '%' . $this->q . '%'])
+            ->andWhere('active=1')
             ->all();
         return ArrayHelper::getColumn($result, 'id');
     }
@@ -66,6 +67,8 @@ class Search extends Model
             ->orWhere('`h1` LIKE :q')
             ->orWhere('`content` LIKE :q')
             ->addParams([':q' => '%' . $this->q . '%'])
+            ->andWhere('published=1')
+            ->andWhere('searchable=1')
             ->all();
         return ArrayHelper::getColumn($result, 'id');
     }

@@ -15,8 +15,6 @@ use app\widgets\image\SaveInfoAction;
 use app\widgets\image\UploadAction;
 use app\backend\actions\UpdateEditable;
 use Yii;
-use yii\data\ActiveDataProvider;
-use yii\data\Pagination;
 use yii\db\Query;
 use yii\filters\AccessControl;
 use yii\helpers\ArrayHelper;
@@ -73,11 +71,15 @@ class ProductController extends Controller
                 'class' => UpdateEditable::className(),
                 'modelName' => Product::className(),
                 'allowedAttributes' => [
-                    'currency_id' => function(Product $model, $attribute) {
-                        if ($model === null || $model->currency === null || $model->currency_id ===0) {
+                    'currency_id' => function (Product $model, $attribute) {
+                        if ($model === null || $model->currency === null || $model->currency_id === 0) {
                             return null;
                         }
-                        return \yii\helpers\Html::tag('div', $model->currency->name, ['class' => $model->currency->name]);
+                        return \yii\helpers\Html::tag(
+                            'div',
+                            $model->currency->name,
+                            ['class' => $model->currency->name]
+                        );
                     },
                     'price',
                     'old_price',
@@ -91,30 +93,13 @@ class ProductController extends Controller
 
         $searchModel = new Product();
         $params = Yii::$app->request->get();
-
+        $dataProvider = $searchModel->search($params);
         if (null !== $catId = Yii::$app->request->get('parent_id')) {
-            $query = $searchModel::find();
-            $query->select('p.*')
-                ->from(Product::tableName() . ' p')
-                ->leftJoin(
-                    Object::getForClass(Product::className())->categories_table_name . ' cp',
-                    'cp.object_model_id=p.id'
-                )
-                ->where('p.parent_id=0 AND cp.category_id=:cur', [':cur' => $catId])
-                ->orderBy('p.id');
-
-            $dataProvider = new ActiveDataProvider(
-                [
-                    'query' => $query,
-                    'pagination' => new Pagination([
-                        'defaultPageSize' => 10,
-                    ])
-                ]
-            );
-        } else {
-            $dataProvider = $searchModel->search($params);
+            $dataProvider->query->leftJoin(
+                Object::getForClass(Product::className())->categories_table_name . ' cp',
+                'cp.object_model_id=product.id'
+            )->andWhere('product.parent_id=0 AND cp.category_id=:cur', [':cur' => $catId]);
         }
-
         return $this->render(
             'index',
             [
@@ -123,7 +108,6 @@ class ProductController extends Controller
             ]
         );
     }
-
 
 
     public function actionEdit($id = null)
@@ -158,50 +142,78 @@ class ProductController extends Controller
         $post = \Yii::$app->request->post();
 
 
-        if ($model->load($post) && $model->validate()) {
-            if (isset($post['GeneratePropertyValue'])) {
-                $generateValues = $post['GeneratePropertyValue'];
-            } else {
-                $generateValues = [];
-            }
-            if (isset($post['PropertyGroup'])) {
-                $model->option_generate = Json::encode(
-                    [
-                        'group' => $post['PropertyGroup']['id'],
-                        'values' => $generateValues
-                    ]
-                );
-            } else {
-                $model->option_generate = '';
-            }
+        if ($model->load($post)) {
+            if ($model->validate()) {
+                if (isset($post['GeneratePropertyValue'])) {
+                    $generateValues = $post['GeneratePropertyValue'];
+                } else {
+                    $generateValues = [];
+                }
+                if (isset($post['PropertyGroup'])) {
+                    $model->option_generate = Json::encode(
+                        [
+                            'group' => $post['PropertyGroup']['id'],
+                            'values' => $generateValues
+                        ]
+                    );
+                } else {
+                    $model->option_generate = '';
+                }
 
-            $save_result = $model->save();
-            $model->saveProperties($post);
-            $model->saveRelatedProducts();
+                $save_result = $model->save();
+                $model->saveProperties($post);
+                $model->saveRelatedProducts();
 
-            if (null !== $view_object = ViewObject::getByModel($model, true)) {
-                if ($view_object->load($post, 'ViewObject')) {
-                    if ($view_object->view_id <= 0) {
-                        $view_object->delete();
-                    } else {
-                        $view_object->save();
+                if (null !== $view_object = ViewObject::getByModel($model, true)) {
+                    if ($view_object->load($post, 'ViewObject')) {
+                        if ($view_object->view_id <= 0) {
+                            $view_object->delete();
+                        } else {
+                            $view_object->save();
+                        }
                     }
                 }
-            }
 
-            if ($save_result) {
-                $categories =
-                    isset($post['Product']['categories']) ?
-                        $post['Product']['categories'] :
-                        [];
+                if ($save_result) {
+                    $categories = isset($post['Product']['categories']) ? $post['Product']['categories'] : [];
 
-                $model->saveCategoriesBindings($categories);
+                    $model->saveCategoriesBindings($categories);
 
-                $this->runAction('save-info');
-                $model->invalidateTags();
+                    $this->runAction('save-info');
+                    $model->invalidateTags();
 
-                Yii::$app->session->setFlash('success', Yii::t('app', 'Record has been saved'));
-                return $this->redirect(Url::toRoute(['edit', 'id' => $model->id]));
+
+                    $action = Yii::$app->request->post('action', 'save');
+                    if (Yii::$app->request->post('AddPropetryGroup')) {
+                        $action = 'save';
+                    }
+                    $returnUrl = Yii::$app->request->get('returnUrl', ['/backend/product/index']);
+                    switch ($action) {
+                        case 'next':
+                            return $this->redirect(
+                                [
+                                    '/backend/product/edit',
+                                    'returnUrl' => $returnUrl,
+                                    'parent_id' => Yii::$app->request->get('parent_id', null)
+                                ]
+                            );
+                        case 'back':
+                            return $this->redirect($returnUrl);
+                        default:
+                            return $this->redirect(
+                                Url::toRoute(
+                                    [
+                                        '/backend/product/edit',
+                                        'id' => $model->id,
+                                        'returnUrl' => $returnUrl,
+                                        'parent_id' => $model->main_category_id
+                                    ]
+                                )
+                            );
+                    }
+                } else {
+                    Yii::$app->session->setFlash('error', Yii::t('app', 'Cannot save data'));
+                }
             } else {
                 Yii::$app->session->setFlash('error', Yii::t('app', 'Cannot save data'));
             }
@@ -238,13 +250,11 @@ class ProductController extends Controller
         }
 
         $object = Object::getForClass(Product::className());
-        $catIds = (new Query())->select('category_id')
-            ->from([$object->categories_table_name])
-            ->where('object_model_id = :id', [':id' => $id])
-            ->orderBy(['sort_order' => SORT_ASC, 'id' => SORT_ASC])
-            ->column();
+        $catIds = (new Query())->select('category_id')->from([$object->categories_table_name])->where(
+            'object_model_id = :id',
+            [':id' => $id]
+        )->orderBy(['sort_order' => SORT_ASC, 'id' => SORT_ASC])->column();
 
-        
 
         if (isset($post['GeneratePropertyValue'])) {
             $generateValues = $post['GeneratePropertyValue'];
@@ -274,53 +284,107 @@ class ProductController extends Controller
         foreach ($optionProperty as $option) {
             /** @var Product|HasProperties $model */
             $model = new Product;
-            if ($model->load($post) && $model->validate()) {
-                $model->parent_id = $parent->id;
-                $nameAppend = [];
-                $slugAppend = [];
-                $tempPost = [];
+            $model->load($post);
 
-                // @todo something
-                foreach ($option as $optionValue) {
-                    foreach ($optionValue as $propertyKey => $propertyValue) {
-                        if (!isset($valueModels[$propertyKey])) {
-                            $propertyStaticValues = PropertyStaticValues::findOne($propertyValue);
-                            $propertyValue = PropertyStaticValues::findById($propertyValue);
-                            $key = $propertyStaticValues->property->key;
-                            $tempPost[$key] = $propertyValue;
-                        }
-                        $nameAppend[] = $propertyValue['name'];
-                        $slugAppend[] = $propertyValue['slug'];
+            $model->parent_id = $parent->id;
+            $nameAppend = [];
+            $slugAppend = [];
+            $tempPost = [];
+
+            // @todo something
+            foreach ($option as $optionValue) {
+                foreach ($optionValue as $propertyKey => $propertyValue) {
+                    if (!isset($valueModels[$propertyKey])) {
+                        $propertyStaticValues = PropertyStaticValues::findOne($propertyValue);
+                        $propertyValue = PropertyStaticValues::findById($propertyValue);
+                        $key = $propertyStaticValues->property->key;
+                        $tempPost[$key] = $propertyValue;
                     }
-                }
-                $model->name = $parent->name . ' (' . implode(', ', $nameAppend) . ')';
-                $model->slug = $parent->slug . '-' . implode('-', $slugAppend);
-                $save_model = $model->save();
-                $postPropertyKey = 'Properties_Product_'.$model->id;
-                $post[$postPropertyKey] = $tempPost;
-                if ($save_model) {
-                    $model->saveProperties($post);
-
-                    unset($post[$postPropertyKey]);
-
-                    $add = [];
-
-                    foreach ($catIds as $value) {
-                        $add[] = [
-                            $value,
-                            $model->id
-                        ];
-                    }
-
-                    if (!empty($add)) {
-                        Yii::$app->db->createCommand()->batchInsert(
-                            $object->categories_table_name,
-                            ['category_id', 'object_model_id'],
-                            $add
-                        )->execute();
-                    }
+                    $nameAppend[] = $propertyValue['name'];
+                    $slugAppend[] = $propertyValue['id'];
                 }
             }
+
+            $model->name = $parent->name . ' (' . implode(', ', $nameAppend) . ')';
+            $model->slug = $parent->slug . '-' . implode('-', $slugAppend);
+            $save_model = $model->save();
+            $postPropertyKey = 'Properties_Product_' . $model->id;
+            $post[$postPropertyKey] = $tempPost;
+            if ($save_model) {
+                foreach (array_keys($parent->propertyGroups) as $key) {
+                    $opg = new ObjectPropertyGroup();
+                    $opg->attributes = [
+                        'object_id' => $parent->object->id,
+                        'object_model_id' => $model->id,
+                        'property_group_id' => $key,
+                    ];
+                    $opg->save();
+                }
+                $model->saveProperties(
+                    [
+                        'Properties_Product_' . $model->id => $parent->abstractModel->attributes,
+                    ]
+                );
+
+                $model->saveProperties($post);
+
+                unset($post[$postPropertyKey]);
+
+                $add = [];
+
+                foreach ($catIds as $value) {
+                    $add[] = [
+                        $value,
+                        $model->id
+                    ];
+                }
+
+                if (!empty($add)) {
+                    Yii::$app->db->createCommand()->batchInsert(
+                        $object->categories_table_name,
+                        ['category_id', 'object_model_id'],
+                        $add
+                    )->execute();
+                }
+                $query = new Query();
+                $params = $query->select(
+                    ['object_id', 'filename', 'image_src', 'thumbnail_src', 'image_description', 'sort_order']
+                )->from(Image::tableName())->where(
+                    [
+                        'object_id' => $model->object->id,
+                        'object_model_id' => $parent->id
+                    ]
+                )->all();
+                if (!empty($params)) {
+                    $rows = [];
+                    foreach ($params as $param) {
+                        $rows[] = [
+                            $param['object_id'],
+                            $model->id,
+                            $param['filename'],
+                            $param['image_src'],
+                            $param['thumbnail_src'],
+                            $param['image_description'],
+                            $param['sort_order'],
+                        ];
+                    }
+                    Yii::$app->db->createCommand()->batchInsert(
+                        Image::tableName(),
+                        [
+                            'object_id',
+                            'object_model_id',
+                            'filename',
+                            'image_src',
+                            'thumbnail_src',
+                            'image_description',
+                            'sort_order',
+                        ],
+                        $rows
+                    )->execute();
+                }
+            }
+
+
         }
     }
 
@@ -339,7 +403,7 @@ class ProductController extends Controller
         if (1 === $model->is_deleted) {
             Yii::$app->session->setFlash('error', Yii::t('app', 'Unable to clone a remote object') . '!');
             $this->redirect(Url::toRoute('index'));
-            return ;
+            return;
         }
         /** @var Product|HasProperties $newModel */
         $newModel = new Product;
@@ -353,10 +417,9 @@ class ProductController extends Controller
             // save categories
             $categoriesTableName = Object::getForClass(Product::className())->categories_table_name;
             $query = new Query();
-            $params = $query->select(['category_id', 'sort_order'])
-                ->from($categoriesTableName)
-                ->where(['object_model_id' => $model->id])
-                ->all();
+            $params = $query->select(['category_id', 'sort_order'])->from($categoriesTableName)->where(
+                ['object_model_id' => $model->id]
+            )->all();
             if (!empty($params)) {
                 $rows = [];
                 foreach ($params as $param) {
@@ -366,28 +429,26 @@ class ProductController extends Controller
                         $param['sort_order'],
                     ];
                 }
-                Yii::$app->db->createCommand()
-                    ->batchInsert(
-                        $categoriesTableName,
-                        [
-                            'category_id',
-                            'object_model_id',
-                            'sort_order'
-                        ],
-                        $rows
-                    )->execute();
+                Yii::$app->db->createCommand()->batchInsert(
+                    $categoriesTableName,
+                    [
+                        'category_id',
+                        'object_model_id',
+                        'sort_order'
+                    ],
+                    $rows
+                )->execute();
             }
 
             // save images bindings
-            $params = $query
-                ->select(['object_id', 'filename', 'image_src', 'thumbnail_src', 'image_description', 'sort_order'])
-                ->from(Image::tableName())
-                ->where(
-                    [
-                        'object_id' => $object->id,
-                        'object_model_id' => $model->id
-                    ]
-                )->all();
+            $params = $query->select(
+                ['object_id', 'filename', 'image_src', 'thumbnail_src', 'image_description', 'sort_order']
+            )->from(Image::tableName())->where(
+                [
+                    'object_id' => $object->id,
+                    'object_model_id' => $model->id
+                ]
+            )->all();
             if (!empty($params)) {
                 $rows = [];
                 foreach ($params as $param) {
@@ -401,20 +462,19 @@ class ProductController extends Controller
                         $param['sort_order'],
                     ];
                 }
-                Yii::$app->db->createCommand()
-                    ->batchInsert(
-                        Image::tableName(),
-                        [
-                            'object_id',
-                            'object_model_id',
-                            'filename',
-                            'image_src',
-                            'thumbnail_src',
-                            'image_description',
-                            'sort_order',
-                        ],
-                        $rows
-                    )->execute();
+                Yii::$app->db->createCommand()->batchInsert(
+                    Image::tableName(),
+                    [
+                        'object_id',
+                        'object_model_id',
+                        'filename',
+                        'image_src',
+                        'thumbnail_src',
+                        'image_description',
+                        'sort_order',
+                    ],
+                    $rows
+                )->execute();
             }
             foreach (array_keys($model->propertyGroups) as $key) {
                 $opg = new ObjectPropertyGroup();
@@ -476,14 +536,12 @@ class ProductController extends Controller
         $ids_sorted = $ids;
         sort($ids_sorted);
         foreach ($ids as $id) {
-            $priorities[$id] = $ids_sorted[$start++];
+            $priorities[$id] = $ids_sorted[$start ++];
         }
-        $sql = "UPDATE "
-            . $tableName
-            . " SET $field = "
-            . self::generateCase($priorities)
-            . " WHERE id IN(" . implode(', ', $ids)
-            . ")";
+        $sql = "UPDATE " . $tableName . " SET $field = " . self::generateCase($priorities) . " WHERE id IN(" . implode(
+                ', ',
+                $ids
+            ) . ")";
 
         return Yii::$app->db->createCommand(
             $sql
@@ -493,12 +551,10 @@ class ProductController extends Controller
 
     /**
      * Рекурсивный генератор свойств для создания комплектаций.
-     *
      * @param array $array Трехмерный массив вида:
      * [[['{property1}' => '{value1}']], [['{property1}' => '{value2}']], [['{property2}' => '{value1}']], [['{property2}' => '{value1}']]]
-     * @param array   $result Используется для передачи результатов внутри рекурсии
-     * @param integer $count  Счетчик внутри рекурсии
-     *
+     * @param array $result Используется для передачи результатов внутри рекурсии
+     * @param integer $count Счетчик внутри рекурсии
      * @return array
      */
 
@@ -508,7 +564,7 @@ class ProductController extends Controller
             foreach ($array[$count] as $value) {
                 $result[] = [$value];
             }
-            $count++;
+            $count ++;
             $arResult = self::generateOptions($array, $result, $count);
         } else {
             if (isset($array[$count])) {
@@ -518,7 +574,7 @@ class ProductController extends Controller
                         $nextResult[] = array_merge($resValue, [$value]);
                     }
                 }
-                $count++;
+                $count ++;
                 $arResult = self::generateOptions($array, $nextResult, $count);
             } else {
                 return $result;
@@ -551,5 +607,38 @@ class ProductController extends Controller
         Yii::$app->session->setFlash('success', Yii::t('app', 'Object successfully restored'));
 
         return $this->redirect(Url::toRoute(['edit', 'id' => $id]));
+    }
+
+    public function actionAjaxRelatedProduct($search = null, $id = null)
+    {
+        Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
+
+        $result = [
+            'more' => false,
+            'results' => []
+        ];
+
+        if (!empty($search)) {
+            $query = new \yii\db\Query();
+            $query->select('id, name AS text')->from(Product::tableName())->andWhere(
+                ['like', 'name', $search]
+            )->andWhere(['is_deleted' => 0])->orderBy(['sort_order' => SORT_ASC, 'name' => SORT_ASC]);
+            $command = $query->createCommand();
+            $data = $command->queryAll();
+
+            $result['results'] = array_values($data);
+        } elseif ($id > 0) {
+            if (null !== $model = Product::findById($id)) {
+                foreach ($model->relatedProducts as $row) {
+                    $result['results'][] = ['id' => $row->id, 'text' => $row->name];
+                }
+            } else {
+                $result['results'] = ['id' => 0, 'text' => 'Ничего не найдено.'];
+            }
+        } else {
+            $result['results'] = ['id' => 0, 'text' => 'Ничего не найдено.'];
+        }
+
+        return $result;
     }
 }

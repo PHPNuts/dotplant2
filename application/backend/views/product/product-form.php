@@ -33,21 +33,59 @@ $this->params['breadcrumbs'][] = $this->title;
 
 <?php $this->beginBlock('submit'); ?>
 <div class="form-group no-margin">
+    <?php if (!$model->isNewRecord): ?>
+        <?=
+        Html::a(
+            Icon::show('eye') . Yii::t('app', 'Preview'),
+            [
+                '/product/show',
+                'model' => $model,
+                'category_group_id' => is_null($model->mainCategory) ? null : $model->mainCategory->category_group_id,
+            ],
+            [
+                'class' => 'btn btn-info',
+                'target' => '_blank',
+            ]
+        )
+        ?>
+    <?php endif; ?>
     <?=
     Html::a(
-        Icon::show('eye') . Yii::t('app', 'Preview'),
-        Url::to([
-            '/product/show',
-            'model' => $model,
-            'category_group_id' => $model->isNewRecord ? null : $model->getMainCategory()->category_group_id
-        ]),
-        ['class' => 'btn btn-success', 'target' => '_blank']
-    ) ?>
+        Icon::show('arrow-circle-left') . Yii::t('app', 'Back'),
+        Yii::$app->request->get('returnUrl', ['/backend/product/index']),
+        ['class' => 'btn btn-danger']
+    )
+    ?>
+    <?php if ($model->isNewRecord): ?>
+        <?=
+        Html::submitButton(
+            Icon::show('save') . Yii::t('app', 'Save & Go next'),
+            [
+                'class' => 'btn btn-success',
+                'name' => 'action',
+                'value' => 'next',
+            ]
+        )
+        ?>
+    <?php endif; ?>
+    <?= Html::submitButton(
+        Icon::show('save') . Yii::t('app', 'Save & Go back'),
+        [
+            'class' => 'btn btn-warning',
+            'name' => 'action',
+            'value' => 'back',
+        ]
+    ); ?>
     <?=
     Html::submitButton(
         Icon::show('save') . Yii::t('app', 'Save'),
-        ['class' => $model->isNewRecord ? 'btn btn-success' : 'btn btn-primary']
-    ) ?>
+        [
+            'class' => 'btn btn-primary',
+            'name' => 'action',
+            'value' => 'save',
+        ]
+    )
+    ?>
 </div>
 <?php $this->endBlock('submit'); ?>
 
@@ -83,17 +121,50 @@ $this->params['breadcrumbs'][] = $this->title;
         );
     ?>
 
+    <?php
+    if (!$model->isNewRecord && is_array($model->relatedProductsArray)):
+        $_relatedProductsArray = $model->relatedProductsArray;
+        $model->relatedProductsArray = implode(',', $_relatedProductsArray);
+
+        $initScript = <<< SCRIPT
+    function (element, callback) {
+        var id={$model->id};
+        if (id !== "") {
+            \$.ajax("/backend/product/ajax-related-product?id=" + id, {
+                dataType: "json"
+            }).done(function(data) { callback(data.results);});
+        }
+    }
+SCRIPT;
+    ?>
     <?=
     $form->field($model, 'relatedProductsArray')
         ->widget(
             Select2::className(),
             [
-                'data' => \app\components\Helper::getModelMap(Product::className(), 'id', 'name'),
+//                'data' => \app\components\Helper::getModelMap(Product::className(), 'id', 'name'),
                 'options' => [
+                    'placeholder' => 'Поиск продуктов ...',
                     'multiple' => true,
                 ],
+                'pluginOptions' => [
+                    'multiple' => true,
+                    'allowClear' => true,
+                    'minimumInputLength' => 3,
+                    'ajax' => [
+                        'url' => '/backend/product/ajax-related-product',
+                        'dataType' => 'json',
+                        'data' => new \yii\web\JsExpression('function(term,page) { return {search:term}; }'),
+                        'results' => new \yii\web\JsExpression('function(data,page) { return {results:data.results}; }'),
+                    ],
+                    'initSelection' => new \yii\web\JsExpression($initScript),
+                ],
             ]
-        )
+        );
+    ?>
+    <?php
+        $model->relatedProductsArray = $_relatedProductsArray;
+    endif;
     ?>
 
     <?php BackendWidget::end(); ?>
@@ -284,6 +355,10 @@ $this->params['breadcrumbs'][] = $this->title;
                 'fontcolor',
                 'video',
             ],
+            'replaceStyles' => [],
+            'replaceTags' => [],
+            'deniedTags' => [],
+            'removeEmpty' => [],
         ],
     ]); ?>
 
@@ -301,6 +376,10 @@ $this->params['breadcrumbs'][] = $this->title;
                 'fontcolor',
                 'video',
             ],
+            'replaceStyles' => [],
+            'replaceTags' => [],
+            'deniedTags' => [],
+            'removeEmpty' => [],
         ],
     ]); ?>
     

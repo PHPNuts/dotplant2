@@ -2,15 +2,24 @@
 
 namespace app\properties;
 
+
+use app\models\Object;
 use app\models\ObjectStaticValues;
 use app\models\Property;
 use Yii;
+use yii\db\ActiveQuery;
+use yii\db\Expression;
 
 class PropertiesHelper
 {
 
     /**
      * Добавляет к запросу фильтры по свойствам
+     * @param $object Object
+     * @param $query ActiveQuery
+     * @param $values_by_property_id array
+     * @param array $dynamic_values_by_property_id array
+     * @throws \Exception
      */
     public static function appendPropertiesFilters(
         $object,
@@ -18,6 +27,8 @@ class PropertiesHelper
         $values_by_property_id,
         $dynamic_values_by_property_id = []
     ) {
+
+        /** @avr $object Object */
 
         // сначала сгруппируем свойства по типу хранения
         $by_storage = [
@@ -113,19 +124,41 @@ class PropertiesHelper
         if (count($by_storage['static_values'])) {
             foreach ($by_storage['static_values'] as $item) {
                 $joinTableName = 'OSVJoinTable'.$item['property']->id;
-                $query = $query->innerJoin(
-                    ObjectStaticValues::tableName() . " " . $joinTableName,
-                    "$joinTableName.object_id = " . intval($object->id) .
-                    " AND $joinTableName.object_model_id = " .
-                    Yii::$app->db->quoteTableName($object->object_table_name) . ".id "
-                );
+                if (count($item['values']) > 0) {
+                    $query = $query->innerJoin(
+                        ObjectStaticValues::tableName() . " " . $joinTableName,
+                        "$joinTableName.object_id = " . intval($object->id) .
+                        " AND $joinTableName.object_model_id = " .
+                        Yii::$app->db->quoteTableName($object->object_table_name) . ".id "
+                    );
 
-
-                $query = $query->andWhere([
-                        'in',
-                        '`' . $joinTableName . '`.`property_static_value_id`',
-                        $item['values']
-                    ]);
+                    $query = $query->andWhere(
+                        new Expression(
+                            '`' . $joinTableName . '`.`property_static_value_id` in (' .
+                            implode(', ', array_map('intval', $item['values'])) .
+                            ')'
+                        )
+                    );
+                }
+            }
+        }
+        if (count($by_storage['eav'])) {
+            foreach ($by_storage['eav'] as $item) {
+                $joinTableName = 'EAVJoinTable'.$item['property']->id;
+                if (count($item['values']) > 0) {
+                    $query = $query->innerJoin(
+                        $object->eav_table_name . " " . $joinTableName,
+                        "$joinTableName.object_model_id = " .
+                        Yii::$app->db->quoteTableName($object->object_table_name) . ".id "
+                    );
+                    $query = $query->andWhere(
+                        new Expression(
+                            '`' . $joinTableName . '`.`value` in (' .
+                            implode(', ', array_map('intval', $item['values'])) .
+                            ') AND `' . $joinTableName . '`.`key` = "'. $item['property']->key.'"'
+                        )
+                    );
+                }
             }
         }
 
